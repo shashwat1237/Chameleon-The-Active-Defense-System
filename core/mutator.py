@@ -74,7 +74,9 @@ def run_mutation():
         dest.write(ast.unparse(new_tree))
 
     # SAVE ROUTE MAP TO JSON
-    STATE_PATH = os.path.join(BASE_DIR, "core", "mutation_state.json")
+    MUTATOR_DIR = os.path.dirname(os.path.abspath(__file__))
+    CORE_DIR = os.path.abspath(os.path.join(MUTATOR_DIR, ".."))
+    STATE_PATH = os.path.join(CORE_DIR, "mutation_state.json")
     with open(STATE_PATH, "w") as state_file:
         json.dump(transformer.route_map, state_file, indent=4)
     
