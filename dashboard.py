@@ -3,6 +3,7 @@ import graphviz
 import time
 import requests
 import os
+import json
 
 MUTATION_INTERVAL=25
 
@@ -79,13 +80,27 @@ with col2:
     # Display how long before the next mutation event occurs.
     st.metric("NEXT MUTATION IN", f"{time_left} seconds")
     
-    # Generate a pseudo-hash to simulate temporary mutated API route suffixes.
-    current_hash = hex(int(timestamp // MUTATION_INTERVAL))[2:8]
-    st.text("CURRENT ROUTE MAP:")
-    st.code(f"""
-/admin/login  -> /admin/login_{current_hash}
-/api/balance  -> /api/balance_{current_hash}
-    """, language="bash")
+
+
+    STATE_PATH = os.path.join(os.path.dirname(__file__), "..", "core", "mutation_state.json")
+
+    def load_routes():
+        try:
+            with open(STATE_PATH, "r") as f:
+                
+                
+                return json.load(f)
+        except:
+            return {}
+
+    routes = load_routes()
+
+    if routes:
+        formatted = "\n".join([f"{k} -> {v}" for k, v in routes.items()])
+    else:
+        formatted = "No mutation state found."
+
+    st.code(formatted, language="bash")
     
     st.markdown("---")
 
