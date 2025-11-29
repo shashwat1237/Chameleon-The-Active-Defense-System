@@ -1,49 +1,61 @@
 #!/bin/bash
 set -e
 
-# [VERIFIED] Cleanup function uses 'kill 0' to terminate the entire process group
-cleanup() {
-    echo "🛑 Shutting down Chameleon Defense System..."
-    kill 0
-    wait
-}
-
-trap cleanup SIGINT SIGTERM EXIT
-
 echo "🚀 Booting Chameleon Defense System..."
 
-# 0. PRE-FLIGHT: Configure Streamlit
-mkdir -p .streamlit
-echo '[general]
-email = ""
-' > .streamlit/credentials.toml
+#############################################
+# 1. CLEAN SHUTDOWN (Safe for Render)
+#############################################
+cleanup() {
+    echo "🛑 Shutting down Chameleon Defense System..."
+    pkill -P $$ || true
+}
+trap cleanup SIGINT SIGTERM
 
-# [VERIFIED] CRITICAL STEP: Generate the server code BEFORE starting servers
-echo "🛠️  Generating initial mutation state..."
+#############################################
+# 2. STREAMLIT CONFIG
+#############################################
+mkdir -p .streamlit
+cat <<EOF > .streamlit/credentials.toml
+[general]
+email = ""
+EOF
+
+#############################################
+# 3. PRE-FLIGHT: Generate mutation
+#############################################
+echo "🛠️ Generating initial mutation state..."
 python core/mutator.py
 
-# 1. Start Server Node A (Background)
-# [VERIFIED] --reload is enabled so the server updates when mutator.py runs
-uvicorn target_app.active_server:app --port 8001 --host 0.0.0.0 --reload --reload-dir target_app &
+#############################################
+# 4. START SERVERS (NO RELOAD IN PRODUCTION)
+#############################################
+echo "⚙️ Starting Server Node A..."
+uvicorn target_app.active_server:app --port 8001 --host 0.0.0.0 > nodeA.log 2>&1 &
 
-# 2. Start Server Node B (Background)
-uvicorn target_app.active_server:app --port 8002 --host 0.0.0.0 --reload --reload-dir target_app &
+echo "⚙️ Starting Server Node B..."
+uvicorn target_app.active_server:app --port 8002 --host 0.0.0.0 > nodeB.log 2>&1 &
 
-# 3. Start The Proxy (Background)
+echo "⚙️ Starting Proxy..."
 python core/proxy.py > proxy.log 2>&1 &
 
-# 4. Stabilization Wait
+#############################################
+# 5. INITIALIZE BOT
+#############################################
 echo "⏳ Waiting for subsystems to initialize..."
 sleep 5
 
-# 5. Start the Hacker Bot (Background)
+echo "🤖 Launching Hacker Bot..."
 python demo_scripts/hacker_bot.py > bot.log 2>&1 &
 
-# 6. Start the Dashboard (Foreground)
-# [VERIFIED] Runs in headless mode and binds to the correct Cloud Port
+#############################################
+# 6. START STREAMLIT DASHBOARD (FOREGROUND)
+#############################################
 echo "✅ Starting Dashboard on Port $PORT"
-streamlit run dashboard.py \
+
+exec streamlit run dashboard.py \
     --server.port $PORT \
+    --server.enableCORS false \
     --server.address 0.0.0.0 \
     --server.headless true \
     --theme.base "dark"
