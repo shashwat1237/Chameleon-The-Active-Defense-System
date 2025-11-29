@@ -72,17 +72,35 @@ Example:
 ## 📁 Project Structure
 
 ```
-/
-├── app/
-│   ├── main.py
-│   ├── mutator/
-│   ├── honeypot/
-│   └── utils/
-├── dashboard/
-├── Dockerfile
-├── requirements.txt
-├── start.sh
-└── README.md
+Chameleon-The-Active-Defense-System/
+│
+├── core/
+│   ├── mutator.py              # AST-based mutation engine (writes mutated server + JSON to /tmp)
+│   ├── proxy.py                # Intelligent routing proxy between Node A/B
+│   └── __pycache__/            # Auto-generated Python cache
+│
+├── target_app/
+│   ├── template.py             # Base FastAPI template used for each mutation cycle
+│   └── __pycache__/            # Auto-generated cache
+│
+├── demo_scripts/
+│   └── hacker_bot.py           # Simulated botnet attacker script (demo for hackathon)
+│
+├── dashboard.py                 # Streamlit cyber-ops UI (visualizes the entire system)
+│
+├── start.sh                     # Master runner: runs mutator, nodes, proxy, dashboard
+│
+├── Dockerfile                   # Containerized deployment config (Render / Docker compatible)
+│
+├── requirements.txt             # Python dependencies for FastAPI, Streamlit, Proxy, Mutator, etc.
+│
+├── LICENSE                      # MIT License
+│
+├── README.md                    # Project documentation
+│
+└── Chameleon Defense System (Shashwat Shekhar).pdf
+                                 # Project presentation / documentation (hackathon submission)
+
 ```
 
 ## ⚙ Installation
