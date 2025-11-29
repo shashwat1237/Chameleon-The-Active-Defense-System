@@ -88,7 +88,7 @@ Example:
 ## ⚙ Installation
 
 ```bash
-git clone <your-repo-url>
+git clone [<your-repo-url>](https://github.com/shashwat1237/Chameleon-The-Active-Defense-System/tree/main)
 cd chameleon-defense-system
 pip install -r requirements.txt
 ```
