@@ -21,7 +21,7 @@ st.title("🦎 CHAMELEON: ACTIVE DECEPTION SYSTEM")
 
 # Heartbeat Check
 try:
-    r = requests.get("http://127.0.0.1:8000/", timeout=0.5)
+    r = requests.get("http://127.0.0.1:8000/", timeout=1)
     status_html = f'<div class="status-box success">CLOUD STATUS: 🟢 OPERATIONAL | BACKEND: ONLINE</div>'
 except:
     status_html = f'<div class="status-box error">CLOUD STATUS: 🔴 BOOTING DEFENSE ENGINE...</div>'
