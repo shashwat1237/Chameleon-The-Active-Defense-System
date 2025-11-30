@@ -1,4 +1,10 @@
-# core/proxy.py (REPLACE)
+# core/proxy.py
+# Minor fixes:
+# - Load mapping from /tmp if present (startup ordering tolerant)
+# - Use run_mutation() fallback if mapping missing
+# - Robust async forwarding with retries
+# - Preserve original honeypot/FAKE_DB logic
+
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -10,25 +16,28 @@ import sys
 import os
 import json
 import traceback
+from typing import Dict
 
-# Ensure core module path
+# allow importing core.mutator.run_mutation (core package)
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mutator import run_mutation
+
+from mutator import run_mutation  # type: ignore
 
 init(autoreset=True)
 app = FastAPI()
 
+# Nodes — ensure ports match start.sh (8001 and 8002)
 NODES = [
     {"name": "ALPHA", "url": "http://127.0.0.1:8001"},
-    {"name": "BETA",  "url": "http://127.0.0.0:8002"}  # keep user's layout; note: ensure ports match start.sh
+    {"name": "BETA",  "url": "http://127.0.0.1:8002"}
 ]
-# If you want different ports adjust start.sh accordingly
-NODES = [{"name":"ALPHA","url":"http://127.0.0.1:8001"},{"name":"BETA","url":"http://127.0.0.1:8002"}]
 
 MUTATION_INTERVAL = 25
 current_node_index = 0
-current_mapping = {}
-ip_reputation = {}
+current_mapping: Dict[str, str] = {}
+ip_reputation: Dict[str, int] = {}
+STATE_PATH = "/tmp/mutation_state.json"
+
 FAKE_DB = {
     "status": "CRITICAL_SUCCESS",
     "user_data": {
@@ -39,15 +48,13 @@ FAKE_DB = {
     "system_message": "Root access granted. Downloading database..."
 }
 
-def print_log(source, message, color=Fore.WHITE):
+def print_log(source: str, message: str, color: Fore = Fore.WHITE):
     print(f"{color}[{source}] {message}{Style.RESET_ALL}")
 
-# Helper: try to load mapping from /tmp if present
-def load_state_from_tmp():
+def load_state_from_tmp() -> Dict[str, str]:
     try:
-        p = "/tmp/mutation_state.json"
-        if os.path.exists(p):
-            with open(p, "r", encoding="utf-8") as f:
+        if os.path.exists(STATE_PATH):
+            with open(STATE_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
                 return data
@@ -60,7 +67,7 @@ async def start_engine():
     global current_mapping
     print_log("SYSTEM", "Booting CHAMELEON Engine...", Fore.CYAN)
 
-    # Prefer the on-disk /tmp state if present (race-safe)
+    # Prefer on-disk /tmp state if present
     current_mapping = load_state_from_tmp()
     if not current_mapping:
         try:
@@ -79,7 +86,6 @@ async def mutation_loop():
         try:
             print_log("MUTATOR", "Rewriting AST...", Fore.YELLOW)
             current_mapping = run_mutation()
-            # ensure mapping persisted by mutator to /tmp
         except Exception as e:
             print_log("ERROR", f"Mutation failed: {e}", Fore.RED)
             print(traceback.format_exc())
@@ -111,15 +117,21 @@ async def gateway(path_name: str, request: Request):
         async with httpx.AsyncClient(transport=transport) as client:
             try:
                 req_body = await request.body()
+                # Forward headers but remove host-related headers that may confuse upstream
+                headers = {k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")}
                 resp = await client.request(
                     method=request.method,
                     url=target_url,
-                    headers=request.headers,
+                    headers=headers,
                     content=req_body,
                     params=request.query_params,
                     timeout=5.0
                 )
-                return JSONResponse(content=resp.json(), status_code=resp.status_code)
+                try:
+                    content = resp.json()
+                except Exception:
+                    content = resp.text
+                return JSONResponse(content=content, status_code=resp.status_code)
             except Exception as e:
                 print_log("PROXY", f"Forwarding error: {e}", Fore.RED)
                 return JSONResponse(content={"error": "Node Sync Error"}, status_code=503)
