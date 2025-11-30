@@ -1,14 +1,20 @@
+# core/mutator.py (REPLACE)
 import ast
 import secrets
 import string
 import os
 import json
+import traceback
 
-# Resolve key project paths so the mutation engine always knows where the
-# template lives and where the mutated server output should be written.
+# Paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "target_app", "template.py")
-OUTPUT_PATH = os.path.join(BASE_DIR, "target_app", "active_server.py")
+
+# local project output (best-effort, not required on Render)
+PROJECT_OUTPUT_PATH = os.path.join(BASE_DIR, "target_app", "active_server.py")
+# runtime (Render-safe) output
+RUNTIME_OUTPUT_PATH = "/tmp/active_server.py"
+STATE_PATH = "/tmp/mutation_state.json"
 
 def generate_chaos_string(length=6):
     chars = string.ascii_lowercase + string.digits
@@ -16,7 +22,7 @@ def generate_chaos_string(length=6):
 
 class ChaosTransformer(ast.NodeTransformer):
     def __init__(self):
-        self.route_map = {} 
+        self.route_map = {}
 
     def visit_FunctionDef(self, node):
         if not node.decorator_list:
@@ -45,26 +51,42 @@ class ChaosTransformer(ast.NodeTransformer):
 
 def run_mutation():
     if not os.path.exists(TEMPLATE_PATH):
-        print(f"[ERROR] Template not found at {TEMPLATE_PATH}")
+        print(f"[MUTATOR][ERROR] Template not found at {TEMPLATE_PATH}")
         return {}
 
-    with open(TEMPLATE_PATH, "r") as source:
-        tree = ast.parse(source.read())
+    with open(TEMPLATE_PATH, "r", encoding="utf-8") as src:
+        tree = ast.parse(src.read())
 
     transformer = ChaosTransformer()
     new_tree = transformer.visit(tree)
     ast.fix_missing_locations(new_tree)
+    mutated_source = ast.unparse(new_tree)
 
-    with open(OUTPUT_PATH, "w") as dest:
-        dest.write(ast.unparse(new_tree))
+    # Best-effort: write project file (useful locally)
+    try:
+        with open(PROJECT_OUTPUT_PATH, "w", encoding="utf-8") as dst:
+            dst.write(mutated_source)
+        print(f"[MUTATOR] Wrote local project output -> {PROJECT_OUTPUT_PATH}")
+    except Exception as e:
+        print(f"[MUTATOR] Local write skipped: {e}")
 
-    # ✔ Render-safe writable path
-    STATE_PATH = "/tmp/mutation_state.json"
-    with open(STATE_PATH, "w") as state_file:
-        json.dump(transformer.route_map, state_file, indent=4)
+    # Write runtime mutated server to /tmp so Render + nodes can import it
+    try:
+        with open(RUNTIME_OUTPUT_PATH, "w", encoding="utf-8") as dst:
+            dst.write(mutated_source)
+        print(f"[MUTATOR] Wrote runtime output -> {RUNTIME_OUTPUT_PATH}")
+    except Exception as e:
+        print(f"[MUTATOR][ERROR] Failed to write runtime output: {e}")
+        print(traceback.format_exc())
 
-    print(f"[MUTATOR] Wrote mutation state to {STATE_PATH}")
-    print(f"[MUTATOR] Routes: {transformer.route_map}")
+    # Save route map to Render-safe path
+    try:
+        with open(STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(transformer.route_map, f, indent=4)
+        print(f"[MUTATOR] State saved -> {STATE_PATH}")
+    except Exception as e:
+        print(f"[MUTATOR][ERROR] Failed writing state: {e}")
+        print(traceback.format_exc())
 
     return transformer.route_map
 
