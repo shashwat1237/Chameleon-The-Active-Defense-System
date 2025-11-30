@@ -3,8 +3,8 @@ import random
 
 app = FastAPI()
 
-# These endpoints represent the core surfaces the mutation engine rewrites.
-# They act as the baseline routes before being transformed at runtime.
+# These are the baseline API routes that serve as input for the AST mutation engine.
+# The mutator reads this template and generates randomized variants of these endpoints at runtime.
 @app.get("/admin/login")
 def admin_login():
     return {"status": "Login Page", "auth_token": "X99-KEY", "version": "1.0"}
@@ -17,7 +17,8 @@ def get_balance():
 def transfer_money(amount: int):
     return {"status": "success", "transferred": amount}
 
-# This root route stays stable so health checks and service probes remain predictable.
+# The root endpoint is intentionally left untouched by mutation—it's used by the dashboard,
+# health checks, and boot diagnostics to confirm the system is online.
 @app.get("/")
 def home():
     return {"message": "Welcome to the Bank. System Operational."}
