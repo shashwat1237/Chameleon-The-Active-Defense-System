@@ -26,6 +26,7 @@ st.markdown("""
 
 st.title("🦎 CHAMELEON: ACTIVE DEFENSE SYSTEM")
 
+# Basic liveness check to show whether the proxy/backend cluster is up.
 try:
     requests.get("http://127.0.0.1:8000/", timeout=2)
     status_html = '<div class="status-box success">CLOUD STATUS: 🟢 OPERATIONAL | BACKEND: ONLINE</div>'
@@ -39,6 +40,8 @@ col1, col2 = st.columns([3, 2])
 with col1:
     st.subheader("Runtime Topology")
 
+    # Build a lightweight topology visualization to show which node is active
+    # and how close the system is to the next mutation cycle.
     graph = graphviz.Digraph()
     graph.attr(bgcolor='#0e1117', rankdir='LR')
     graph.attr('node', style='filled', fontcolor='black', fontname='Courier')
@@ -53,6 +56,7 @@ with col1:
     graph.node('H', 'BOTNET\n(Internal)', fillcolor='#ff4b4b', fontcolor='white')
     graph.node('P', 'PROXY\n(Gateway)', fillcolor='#0078ff', fontcolor='white')
 
+    # Alternate which node appears active based on the mutation cycle.
     if cycle == 0:
         graph.node('A', 'NODE A (8001)\n[ACTIVE]', fillcolor='#00ff41')
         graph.node('B', 'NODE B (8002)\n[MUTATING...]', fillcolor='#555555', fontcolor='white')
@@ -64,6 +68,7 @@ with col1:
         graph.edge('P', 'A', style='dashed', color='#555555')
         graph.edge('P', 'B', color='#00ff41', penwidth='3')
 
+    # When mutation is imminent, represent stale-token replay attempts visually.
     if time_left < 6:
         graph.edge('H', 'P', label='Replay Attack\n(Stale Token)', color='#ff4b4b', penwidth='2')
     else:
@@ -74,12 +79,14 @@ with col1:
 with col2:
     st.subheader("Defense Telemetry")
 
+    # Display the countdown until the next mutation event.
     st.metric("NEXT MUTATION IN", f"{time_left} seconds")
 
-    # ✔ Read from Render-safe path
+    # Location where the proxy and mutator store the active route mapping.
     STATE_PATH = "/tmp/mutation_state.json"
 
     def load_routes():
+        # Read the current mutation state so the dashboard reflects live routing.
         try:
             with open(STATE_PATH, "r") as f:
                 return json.load(f)
@@ -97,6 +104,7 @@ with col2:
 
     st.markdown("---")
 
+    # Surface honeypot activation indicators when the system enters its critical phase.
     if time_left < 6:
         st.error("🚨 THREAT DETECTED: REPLAY ATTACK")
         st.warning("⚠️ HONEYPOT ACTIVATED")
