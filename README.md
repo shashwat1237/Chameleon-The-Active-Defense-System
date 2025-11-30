@@ -18,7 +18,7 @@
 
 
 The **Chameleon Defense System** is a next-gen cybersecurity framework built on **Moving Target Defense (MTD)** and **Active Deception**.  
-It **mutates API routes every 30 seconds**, deploys a **honeypot for stale routes**, and uses **zero-downtime active/passive node switching** to disrupt automated attacks.
+It **mutates API routes every 25 seconds**, deploys a **honeypot for stale routes**, and uses **zero-downtime active/passive node switching** to disrupt automated attacks.
 
 ## ❗ Why This Exists — The Problem
 
