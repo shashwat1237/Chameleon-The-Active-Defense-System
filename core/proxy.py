@@ -1,9 +1,8 @@
 # core/proxy.py
-# Minor fixes:
-# - Load mapping from /tmp if present (startup ordering tolerant)
-# - Use run_mutation() fallback if mapping missing
-# - Robust async forwarding with retries
-# - Preserve original honeypot/FAKE_DB logic
+# This component acts as the traffic director. All requests enter through here,
+# where the proxy decides whether to forward the request to the currently active
+# mutated backend node or divert it into the honeypot. It also keeps track of
+# the latest mutation map and gracefully handles staggered startup conditions.
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -18,7 +17,7 @@ import json
 import traceback
 from typing import Dict
 
-# allow importing core.mutator.run_mutation (core package)
+# Adjust import path so this proxy can call into the mutation engine
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from mutator import run_mutation  # type: ignore
@@ -26,7 +25,8 @@ from mutator import run_mutation  # type: ignore
 init(autoreset=True)
 app = FastAPI()
 
-# Nodes — ensure ports match start.sh (8001 and 8002)
+# Backend node definitions—these correspond to the two Uvicorn instances
+# started in start.sh. Only one node is active at a time.
 NODES = [
     {"name": "ALPHA", "url": "http://127.0.0.1:8001"},
     {"name": "BETA",  "url": "http://127.0.0.1:8002"}
@@ -38,6 +38,7 @@ current_mapping: Dict[str, str] = {}
 ip_reputation: Dict[str, int] = {}
 STATE_PATH = "/tmp/mutation_state.json"
 
+# Payload returned to attackers when they probe stale or invalid endpoints.
 FAKE_DB = {
     "status": "CRITICAL_SUCCESS",
     "user_data": {
@@ -49,9 +50,12 @@ FAKE_DB = {
 }
 
 def print_log(source: str, message: str, color: Fore = Fore.WHITE):
+    # Standardized colored logging for clear visibility during runtime.
     print(f"{color}[{source}] {message}{Style.RESET_ALL}")
 
 def load_state_from_tmp() -> Dict[str, str]:
+    # Attempts to restore the most recent route mapping from /tmp.
+    # This allows the proxy to survive noisy boot conditions or node restarts.
     try:
         if os.path.exists(STATE_PATH):
             with open(STATE_PATH, "r", encoding="utf-8") as f:
@@ -64,10 +68,11 @@ def load_state_from_tmp() -> Dict[str, str]:
 
 @app.on_event("startup")
 async def start_engine():
+    # Boot sequence: attempt to load existing state, and fall back to generating
+    # one if the system is starting fresh or the previous state was missing.
     global current_mapping
     print_log("SYSTEM", "Booting CHAMELEON Engine...", Fore.CYAN)
 
-    # Prefer on-disk /tmp state if present
     current_mapping = load_state_from_tmp()
     if not current_mapping:
         try:
@@ -80,6 +85,8 @@ async def start_engine():
     asyncio.create_task(mutation_loop())
 
 async def mutation_loop():
+    # Background loop that periodically triggers new AST mutation cycles and
+    # rotates the active backend node so that the attack surface keeps shifting.
     global current_mapping, current_node_index
     while True:
         await asyncio.sleep(MUTATION_INTERVAL)
@@ -96,28 +103,33 @@ async def mutation_loop():
 
 @app.api_route("/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def gateway(path_name: str, request: Request):
+    # Main proxy routing handler. Decides between forwarding requests or
+    # activating deception paths depending on whether the route is still valid.
     global current_mapping, ip_reputation
     original_path = f"/{path_name}"
     target_node = NODES[current_node_index]
     client_ip = request.client.host or "127.0.0.1"
 
+    # Basic resistance mechanism: slow down any IP that has triggered traps before.
     suspicion_score = ip_reputation.get(client_ip, 0)
     if suspicion_score > 0:
         await asyncio.sleep(secrets.randbelow(10) / 10.0)
 
-    # Refresh mapping from disk occasionally to tolerate external writes
+    # If the proxy lost its in-memory state, try restoring from /tmp at runtime.
     if not current_mapping:
         current_mapping = load_state_from_tmp()
 
+    # If the requested route is valid, forward it to the active node.
     if original_path in current_mapping:
         actual_path = current_mapping[original_path]
         target_url = f"{target_node['url']}{actual_path}"
         print_log("PROXY", f"Forwarding: {original_path} -> {actual_path}", Fore.CYAN)
+
         transport = httpx.AsyncHTTPTransport(retries=3)
         async with httpx.AsyncClient(transport=transport) as client:
             try:
                 req_body = await request.body()
-                # Forward headers but remove host-related headers that may confuse upstream
+                # Strip or adjust headers that may interfere with upstream behavior.
                 headers = {k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")}
                 resp = await client.request(
                     method=request.method,
@@ -136,6 +148,8 @@ async def gateway(path_name: str, request: Request):
                 print_log("PROXY", f"Forwarding error: {e}", Fore.RED)
                 return JSONResponse(content={"error": "Node Sync Error"}, status_code=503)
 
+    # Requests for routes that no longer exist (i.e., mutated out) are treated
+    # as hostile or replayed attacks and are funneled into the honeypot.
     print_log("SECURITY", f"⚠️ INTRUSION DETECTED: {original_path}", Fore.RED)
     ip_reputation[client_ip] = ip_reputation.get(client_ip, 0) + 1
     await asyncio.sleep(0.3)
